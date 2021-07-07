@@ -1,0 +1,189 @@
+---
+title: "3 Kuang Rubrics"
+author: "Jason Lu", "Jung Hwa Yeom", "Jinzhe Zhang", "Xiaozhou Lu"
+date: "4/12/2021"
+output: pdf_document
+---
+
+```{r}
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(arm)
+```
+
+### Initializing dataset and cleaning names
+```{r}
+data1 <- read_excel("Student Record Clean Adminstration 1 No missing data.xlsx")
+# head(data1)
+data1$session <- "First"
+names(data1) <- c("Student_ID","June_2019","Sept_2019","Average_2019","TchrTotal","TchrOne","TchrTwo","TchrThree","SelfTotal","SelfOne","SelfTwo","SelfThree","Session")
+```
+
+### Correlation method
+```{r}
+# ++++++++++++++++++++++++++++
+# flattenCorrMatrix
+# ++++++++++++++++++++++++++++
+# cormat : matrix of the correlation coefficients
+# pmat : matrix of the correlation p-values
+flattenCorrMatrix <- function(cormat, pmat) {
+  ut <- upper.tri(cormat)
+  data.frame(
+    row = rownames(cormat)[row(cormat)[ut]],
+    column = rownames(cormat)[col(cormat)[ut]],
+    cor  =(cormat)[ut],
+    p = pmat[ut]
+    )
+}
+library(Hmisc)
+res2<-rcorr(as.matrix(data1[,2:12]))
+View(flattenCorrMatrix(res2$r, res2$P))    # gives every variable's correlation against each other
+```
+
+```{r}
+# Insignificant correlations are leaved blank
+library(corrplot)
+corrplot((res2$r),type="upper", order="hclust", 
+         p.mat = res2$P, sig.level = 0.01, insig = "blank")
+```
+
+# scatterplot EDA
+```{r}
+data_a <- data.frame(data1)
+tchr <- ggplot(data_a, aes(x=Student_ID, y=TchrTotal, color="Teacher Total"))+ geom_point(color="blue")
+stu <- ggplot(data_a, aes(x=Student_ID, y=SelfTotal, color="Self Total"))+ geom_point(color="red")
+
+plot(x=data_a$Student_ID, y=data_a$TchrTotal, col="blue", pch=19)
+points(data1$SelfTotal, col="red", pch=19)
+
+# scatterplot for SelfTotal vs. TchrTotal
+plot(data1$SelfTotal, data1$TchrTotal, pch=19, xlab="Self Total", ylab="Teacher Total", main="Self Total vs. Teacher Total")
+```
+
+# Quasibinomial model
+```{r}
+quasibm <- glm(cbind(SelfTotal, 25-SelfTotal)~TchrTotal + Average_2019, data=data1, family=quasibinomial)
+quasibm
+summary(quasibm)
+plot(quasibm)
+# binned residual plot
+binnedplot(fitted(quasibm),resid(quasibm))
+```
+
+```{r}
+# quasibinomial for selfone
+bm1 <- glm(cbind(SelfOne, 10-SelfOne)~TchrTotal + Average_2019, data=data1, family=quasibinomial)
+bm1
+summary(bm1)
+plot(bm1)
+# binned residual plot
+binnedplot(fitted(bm1),resid(bm1))
+```
+
+```{r}
+# quasibinomial for selftwo
+bm2 <- glm(cbind(SelfTwo, 10-SelfTwo)~TchrTotal + Average_2019, data=data1, family=quasibinomial)
+bm2
+summary(bm2)
+plot(bm2)
+# binned residual plot
+binnedplot(fitted(bm2),resid(bm2))
+```
+
+```{r}
+# quasibinomial for selfthree
+bm3 <- glm(cbind(SelfThree, 5-SelfThree)~TchrTotal + Average_2019, data=data1, family=quasibinomial)
+bm3
+summary(bm3)
+plot(bm3)
+# binned residual plot
+binnedplot(fitted(bm3),resid(bm3))
+```
+### References:
+http://www.sthda.com/english/wiki/correlation-matrix-a-quick-start-guide-to-analyze-format-and-visualize-a-correlation-matrix-using-r-software
+
+http://www.sthda.com/english/articles/39-regression-model-diagnostics/161-linear-regression-assumptions-and-diagnostics-in-r-essentials/#regression-assumptions
+
+http://www.john-ros.com/Rcourse/lme.html
+
+
+
+
+### Not used: EDA and initial modeling
+creating dataset for students who took exam twice
+```{r}
+data2 <- read_excel("Student Record Clean Adminstration 2 No missing data.xlsx")
+data2$session <- "Second"
+names(data2) <- c("Student_ID","June_2019","Sept_2019","Average_2019","TchrTotal","TchrOne","TchrTwo","TchrThree","SelfTotal","SelfOne","SelfTwo","SelfThree","Session")
+
+common_students <- inner_join(data1,data2,by="Student_ID")[,1]
+common_students <- as.numeric(unlist(common_students))
+
+dataS1 <- data1[1,]
+for(i in 1:length(common_students)){
+  dataS1[i,] <- data1[which(data1$Student_ID == common_students[i]),]
+}
+
+data_paired <- rbind(dataS1,data2)
+```
+
+```{r}
+colnames(data1)
+pairs(data1[,-c(1,2,3,6,7,8,10,11,12,13)])
+```
+
+ Initial Model: Fit for data1 and regression assumptions
+```{r}
+fit <- lm(SelfTotal ~ Average_2019 + TchrTotal, data=data1)
+summary(fit)
+par(mfrow = c(2, 2))
+plot(fit)
+```
+Assumptions (4): 
+Linearity of data, Constant Variance of residuals (1, Residuals vs Fitted); OK
+Normality of residuals (2, Normal Q-Q); OK
+Independence of residual error
+
+ ***glm w/ binomial family, different links
+```{r}
+# Student Self Scores
+# logit- transform response
+with(data1, plot(TchrTotal, log(SelfTotal / (25-SelfTotal) )))
+with(data1, plot(Average_2019, log(SelfTotal / (25-SelfTotal) )))
+
+# complementary loglog link, doesn't work
+with(data1, plot(TchrTotal, log(-log(1 - (SelfTotal / 25)) )))
+with(data1, plot(Average_2019, log(-log(1 - (SelfTotal / 25)) )))
+
+# glm model w/ logit link, awaiting Faculty feedback on residuals
+bm <- glm(cbind(SelfTotal, 25-SelfTotal)~TchrTotal + Average_2019, data=data1, family=binomial)
+bm
+summary(bm)
+plot(bm)
+```
+
+### Not used: Utilizing dataset 2
+session affects score, so we need to treat them separately (3 total models: data1, first, second)
+```{r}
+paired <- lm(SelfTotal ~ Average_2019 + TchrTotal + Session, data=data_paired)
+summary(paired)
+```
+
+ data_paired: 1st session
+```{r}
+first <- data_paired[which(data_paired$Session=="First"),]
+lm_first <- lm(SelfTotal ~ Average_2019 + TchrTotal, data=first)
+summary(lm_first)
+plot(lm_first)
+```
+Constant Variance assumption not met
+
+ data_paired: 2nd session
+```{r}
+second <- data_paired[which(data_paired$Session=="Second"),]
+lm_second <- lm(SelfTotal ~ Average_2019 + TchrTotal, data=second)
+summary(lm_second)
+plot(lm_second)
+```
+All assumptions met
